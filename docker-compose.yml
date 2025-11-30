@@ -1,0 +1,10 @@
+version: '3.8'
+services:
+  next:
+    build: .
+    volumes:
+      - /app/node_modules
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "3029:3000"
