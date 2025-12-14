@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import Anthropic from "@anthropic-ai/sdk";
+import { callMCPTool } from "./mcp-bridge.js";
 
 const client = new Anthropic();
 
@@ -68,9 +69,12 @@ export async function chatRoute(req: Request, res: Response) {
   }
 
   try {
+    const model = process.env.CLAUDE_MODEL || "claude-sonnet-4-20250514";
+    const maxTokens = parseInt(process.env.MAX_TOKENS || "1024");
+
     const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
+      model,
+      max_tokens: maxTokens,
       system: "You are a Dutch tax advisor assistant. Use the available tools to help users with tax questions. Be concise and helpful.",
       tools,
       messages: [
@@ -90,8 +94,8 @@ export async function chatRoute(req: Request, res: Response) {
 
       // Continue conversation with tool result
       const finalResponse = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1024,
+        model,
+        max_tokens: maxTokens,
         system: "You are a Dutch tax advisor assistant.",
         tools,
         messages: [
@@ -113,9 +117,38 @@ export async function chatRoute(req: Request, res: Response) {
 }
 
 async function executeToolLocally(toolName: string, input: any) {
-  // TODO: Connect to your actual MCP server
-  // For now, return mock responses
-  console.log(`Executing tool: ${toolName}`, input);
-  return { result: `Mock result for ${toolName}` };
+  try {
+    console.log(`Executing tool: ${toolName}`, input);
+    const result = await callMCPTool(toolName, input);
+    return result;
+  } catch (error) {
+    console.error(`Failed to execute tool ${toolName}:`, error);
+    // Return error as tool result so Claude can handle it
+    return {
+      error: error instanceof Error ? error.message : "Unknown error",
+      toolName,
+    };
+  }
+}
+
+// Direct tool execution endpoint
+export async function toolRoute(req: Request, res: Response) {
+  const { toolName } = req.params;
+  const params = req.body;
+
+  if (!toolName) {
+    return res.status(400).json({ error: "Tool name required" });
+  }
+
+  try {
+    const result = await callMCPTool(toolName, params);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error(`Tool execution error (${toolName}):`, error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
 }
 
